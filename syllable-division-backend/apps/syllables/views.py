@@ -125,6 +125,7 @@ def split_and_syllabify(request):
     if not keep_hyphens:
         closing = set(list(closing) + ["-"])
     items = []
+    syllables_total = 0
     for tok in tokens:
         # Split token into prefix punctuation, core, and suffix punctuation
         pre_match = re.match(rf'^[{punct_class}]+', tok)
@@ -151,11 +152,13 @@ def split_and_syllabify(request):
         if core and (word_re.match(core) or word_re.match(core_no_hyphen)):
             if prefix:
                 push_punct_chars(prefix)
+            sylls = divide_into_syllables(core_no_hyphen)
             items.append({
                 "type": "word",
                 "token": core_no_hyphen,
-                "syllables": divide_into_syllables(core_no_hyphen)
+                "syllables": sylls
             })
+            syllables_total += len(sylls)
             if suffix:
                 push_punct_chars(suffix)
         else:
@@ -178,6 +181,7 @@ def split_and_syllabify(request):
             "punct_open": punct_open_count,
             "punct_close": punct_close_count,
             "punct_total": punct_total_count,
+            "syllables_total": syllables_total,
         },
         "options": {
             "include_numbers": include_numbers,
