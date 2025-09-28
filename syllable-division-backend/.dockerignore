@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.git
+.gitignore
+.mypy_cache/
+.pytest_cache/
+.coverage*
+dist/
+build/
+node_modules/
