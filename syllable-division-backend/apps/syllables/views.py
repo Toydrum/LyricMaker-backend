@@ -187,7 +187,7 @@ def split_and_syllabify(request):
         "items": items,
         "counts": {
             "lines": len(items),
-            "total": sum(len(line) for line in items),
+            "total with symbols": sum(len(line) for line in items),
             "words": sum(1 for line in items for it in line if it["type"] == "word"),
             "punct": sum(1 for line in items for it in line if it["type"] in {"punct", "punct_open", "punct_close"}),
             "punct_open": punct_open_count,
