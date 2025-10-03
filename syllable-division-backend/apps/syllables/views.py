@@ -76,13 +76,14 @@ def split_text(request):
 
 @csrf_exempt
 def split_and_syllabify(request):
-    """Split the text and syllabify only word tokens (skip punctuation).
+    """Split the text (by lines) and syllabify only word tokens (skip punctuation).
     Body JSON:
     {
       "text": "...",
       ... same options as split_text ...
     }
-    Returns a list of items: { type: 'word'|'punct', token: str, [syllables]: [...] }
+        Returns items grouped per line (list of lists). Each item is:
+            { type: 'word'|'punct'|'punct_open'|'punct_close', token: str, [syllables]: [...] }
     """
     if request.method != "POST":
         return HttpResponseBadRequest("Use POST con JSON {'text': '...'}")
@@ -104,18 +105,6 @@ def split_and_syllabify(request):
     min_len = int(data.get("min_len", 1))
     unique = bool(data.get("unique", False))
 
-    tokens = split_words(
-        text,
-        include_numbers=include_numbers,
-        keep_hyphens=keep_hyphens,
-        keep_punct=keep_punct,
-        attach_punct=attach_punct,
-        lower=lower,
-        min_len=min_len,
-        unique=unique,
-        normalize_ellipsis=normalize_ellipsis,
-    )
-
     # Classify tokens and syllabify only words (strip punctuation for syllabifier)
     word_re = get_word_regex(include_numbers=include_numbers, keep_hyphens=keep_hyphens)
     punct_class = get_punct_chars(keep_hyphens=keep_hyphens)
@@ -124,19 +113,25 @@ def split_and_syllabify(request):
     closing = {"?", "!", ")", "]", "}", "»", "”", "’", ",", ".", ";", ":", "…"}
     if not keep_hyphens:
         closing = set(list(closing) + ["-"])
-    items = []
+    items = []  # list of lists (per line)
     syllables_total = 0
-    for tok in tokens:
-        # Split token into prefix punctuation, core, and suffix punctuation
-        pre_match = re.match(rf'^[{punct_class}]+', tok)
-        suf_match = re.search(rf'[{punct_class}]+$', tok)
-        prefix = pre_match.group(0) if pre_match else ""
-        suffix = suf_match.group(0) if suf_match else ""
+    syllables_per_line = []
+    lines = text.splitlines()
+    for line in lines:
+        line_tokens = split_words(
+            line,
+            include_numbers=include_numbers,
+            keep_hyphens=keep_hyphens,
+            keep_punct=keep_punct,
+            attach_punct=attach_punct,
+            lower=lower,
+            min_len=min_len,
+            unique=unique,
+            normalize_ellipsis=normalize_ellipsis,
+        )
 
-        core_start = len(prefix)
-        core_end = len(tok) - len(suffix)
-        core = tok[core_start:core_end] if core_end >= core_start else ""
-        core_no_hyphen = core.replace("-", "")
+        line_items = []
+        line_syllables_total = 0
 
         def push_punct_chars(punc: str):
             for ch in punc:
@@ -146,25 +141,41 @@ def split_and_syllabify(request):
                     ptype = "punct_close"
                 else:
                     ptype = "punct"
-                items.append({"type": ptype, "token": ch})
+                line_items.append({"type": ptype, "token": ch})
 
-        # If the core is a word (after removing hyphens), output prefix punct(s), word, then suffix punct(s)
-        if core and (word_re.match(core) or word_re.match(core_no_hyphen)):
-            if prefix:
-                push_punct_chars(prefix)
-            sylls = divide_into_syllables(core_no_hyphen)
-            items.append({
-                "type": "word",
-                "token": core_no_hyphen,
-                "syllables": sylls
-            })
-            syllables_total += len(sylls)
-            if suffix:
-                push_punct_chars(suffix)
-        else:
-            # Entire token considered punctuation or non-word
-            if tok:
-                push_punct_chars(tok)
+        for tok in line_tokens:
+            # Split token into prefix punctuation, core, and suffix punctuation
+            pre_match = re.match(rf'^[{punct_class}]+', tok)
+            suf_match = re.search(rf'[{punct_class}]+$', tok)
+            prefix = pre_match.group(0) if pre_match else ""
+            suffix = suf_match.group(0) if suf_match else ""
+
+            core_start = len(prefix)
+            core_end = len(tok) - len(suffix)
+            core = tok[core_start:core_end] if core_end >= core_start else ""
+            core_no_hyphen = core.replace("-", "")
+
+            # If the core is a word (after removing hyphens), output prefix punct(s), word, then suffix punct(s)
+            if core and (word_re.match(core) or word_re.match(core_no_hyphen)):
+                if prefix:
+                    push_punct_chars(prefix)
+                sylls = divide_into_syllables(core_no_hyphen)
+                line_items.append({
+                    "type": "word",
+                    "token": core_no_hyphen,
+                    "syllables": sylls
+                })
+                line_syllables_total += len(sylls)
+                syllables_total += len(sylls)
+                if suffix:
+                    push_punct_chars(suffix)
+            else:
+                # Entire token considered punctuation or non-word
+                if tok:
+                    push_punct_chars(tok)
+
+        items.append(line_items)
+        syllables_per_line.append(line_syllables_total)
 
     # Count punctuation in the original text to capture opening signs even if attached
     punct_open_count = sum(1 for ch in text if ch in opening)
@@ -175,13 +186,15 @@ def split_and_syllabify(request):
         "text": text,
         "items": items,
         "counts": {
-            "total": len(items),
-            "words": sum(1 for it in items if it["type"] == "word"),
-            "punct": sum(1 for it in items if it["type"] in {"punct", "punct_open", "punct_close"}),
+            "lines": len(items),
+            "total": sum(len(line) for line in items),
+            "words": sum(1 for line in items for it in line if it["type"] == "word"),
+            "punct": sum(1 for line in items for it in line if it["type"] in {"punct", "punct_open", "punct_close"}),
             "punct_open": punct_open_count,
             "punct_close": punct_close_count,
             "punct_total": punct_total_count,
             "syllables_total": syllables_total,
+            "syllables_per_line": syllables_per_line,
         },
         "options": {
             "include_numbers": include_numbers,

@@ -33,12 +33,7 @@ def syllable_divider(word: str):
 
     def is_vowel(i: int) -> bool:
         c = word[i]
-        if c in VOWELS:
-            return True
-        # Treat final 'y' as vowel when preceded by a vowel (e.g., 'hoy', 'buey').
-        if c.lower() == 'y' and i == len(word) - 1 and i > 0 and word[i - 1] in VOWELS:
-            return True
-        return False
+        return c in VOWELS
 
     def is_strong(c: str) -> bool:
         return c in STRONG
@@ -63,6 +58,10 @@ def syllable_divider(word: str):
         v2 = ch(i + 1)
         v3 = ch(i + 2)
 
+        def is_y_final_vowel(k: int) -> bool:
+            c = ch(k)
+            return c.lower() == 'y' and k == len(word) - 1 and k > 0 and ch(k - 1) in VOWELS
+
         # Handle 'y' as a weak vowel only in ending diphthongs like 'buey'.
         def is_vowel_like(k: int) -> bool:
             c = ch(k)
@@ -76,7 +75,11 @@ def syllable_divider(word: str):
 
         # Determine triphthong: weak (no accent) + strong + weak (no accent)
         if is_vowel_like(i) and is_vowel_like(i + 1) and is_vowel_like(i + 2):
+            # Standard triphthong weak + strong + weak (no accents)
             if is_weak(v1) and not is_accented(v1) and is_strong(v2) and is_weak(v3) and not is_accented(v3):
+                return i + 3
+            # Special-case: weak + strong + final 'y' acting as weak (e.g., 'buey')
+            if is_weak(v1) and not is_accented(v1) and is_strong(v2) and is_y_final_vowel(i + 2):
                 return i + 3
 
         # Determine diphthong cases (order matters)
@@ -89,6 +92,11 @@ def syllable_divider(word: str):
                 return i + 2
             # weak (not accented) + strong -> diphthong
             if is_weak(v1) and not is_accented(v1) and is_strong(v2):
+                return i + 2
+            # Special-cases with final 'y' acting as weak: 'oy', 'ey', 'ay', 'uy', 'iy'
+            if is_strong(v1) and is_y_final_vowel(i + 1):
+                return i + 2
+            if is_weak(v1) and not is_accented(v1) and is_y_final_vowel(i + 1):
                 return i + 2
 
         # Default: single vowel nucleus
